@@ -1,6 +1,7 @@
 import Cocoa
 import Foundation
 import SystemConfiguration
+import Network
 
 class CustomView: NSView {
     private let containerView: NSView
@@ -18,8 +19,19 @@ class CustomView: NSView {
     private var isRunningSpeedTest = false
     var currentCountry: String?
     
-    private var networkObserver: NSObjectProtocol?
-    private var reachability: SCNetworkReachability?
+    private var networkMonitor: NWPathMonitor?
+    private var isNetworkAvailable = false
+    private var lastKnownIP: String?
+    private var retryTimer: Timer?
+    private let retryInterval: TimeInterval = 5.0
+    private var isRetrying = false
+    private var ipCheckTimer: Timer?
+    private let ipCheckInterval: TimeInterval = 10.0 // Check IP every 10 seconds
+    private var isHomeCountrySet: Bool = false
+
+    private var retryCount = 0
+    private let maxRetryCount = 5
+    private let initialRetryDelay: TimeInterval = 1.0
 
     override init(frame frameRect: NSRect) {
         // Initialize the UI components
@@ -161,21 +173,115 @@ class CustomView: NSView {
             uploadSpeedValue.bottomAnchor.constraint(lessThanOrEqualTo: containerView.bottomAnchor, constant: -10)
         ])
 
-        // Set up network change observer
-        setupNetworkObserver()
-
-        // Display the public IP address and home country
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.fetchPublicIP()
-            self?.loadHomeCountry()
-        }
+        // Set up network monitor
+        setupNetworkMonitor()
     }
     
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
+    private func setupNetworkMonitor() {
+        networkMonitor = NWPathMonitor()
+        networkMonitor?.pathUpdateHandler = { [weak self] path in
+            DispatchQueue.main.async {
+                let wasNetworkAvailable = self?.isNetworkAvailable
+                self?.isNetworkAvailable = path.status == .satisfied
+                
+                if self?.isNetworkAvailable == true {
+                    if wasNetworkAvailable == false {
+                        // Network became available
+                        self?.retryTimer?.invalidate()
+                        self?.isRetrying = false
+                        self?.retryCount = 0
+                        self?.forceIPRefresh()
+                    }
+                } else {
+                    self?.handleNetworkUnavailable()
+                }
+            }
+        }
+        networkMonitor?.start(queue: DispatchQueue.global())
+
+        // Start periodic IP checks
+        startIPCheckTimer()
+    }
+
+    private func startIPCheckTimer() {
+        ipCheckTimer?.invalidate()
+        ipCheckTimer = Timer.scheduledTimer(withTimeInterval: ipCheckInterval, repeats: true) { [weak self] _ in
+            self?.checkForIPChange()
+        }
+    }
+
+    public func forceIPRefresh() {
+        lastKnownIP = nil
+        fetchPublicIP()
+    }
+
+    private func checkForIPChange() {
+        guard isNetworkAvailable else { return }
+
+        guard let url = URL(string: "https://api.ipify.org?format=json") else {
+            return
+        }
+
+        let task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                  let ip = json["ip"] as? String else {
+                return
+            }
+
+            DispatchQueue.main.async {
+                if ip != self?.lastKnownIP {
+                    self?.forceIPRefresh()
+                }
+            }
+        }
+        task.resume()
+    }
+
+    private func handleNetworkUnavailable() {
+        resultLabel.stringValue = "Network unavailable"
+        flagLabel.stringValue = ""
+        currentCountry = nil
+        compareCountries()
+        startRetryTimer()
+    }
+
+    private func startRetryTimer() {
+        retryTimer?.invalidate()
+        isRetrying = true
+        let delay = calculateRetryDelay()
+        retryTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+            self?.checkNetworkAndFetchIP()
+        }
+    }
+
+    private func calculateRetryDelay() -> TimeInterval {
+        let delay = initialRetryDelay * pow(2.0, Double(retryCount))
+        retryCount = min(retryCount + 1, maxRetryCount)
+        return min(delay, 60.0) // Cap the delay at 60 seconds
+    }
+
+    private func checkNetworkAndFetchIP() {
+        if isNetworkAvailable {
+            retryTimer?.invalidate()
+            isRetrying = false
+            retryCount = 0
+            fetchPublicIP()
+        } else {
+            startRetryTimer()
+        }
+    }
+
     func fetchPublicIP() {
+        guard isNetworkAvailable else {
+            handleNetworkUnavailable()
+            return
+        }
+
         guard let url = URL(string: "https://api.ipify.org?format=json") else {
             resultLabel.stringValue = "Error: Invalid URL"
             return
@@ -184,8 +290,7 @@ class CustomView: NSView {
         let task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 if let error = error {
-                    self?.resultLabel.stringValue = "Error: \(error.localizedDescription)"
-                    self?.flagLabel.stringValue = ""
+                    self?.handleNetworkError(error: error)
                     return
                 }
 
@@ -198,6 +303,7 @@ class CustomView: NSView {
                 do {
                     if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                        let ip = json["ip"] as? String {
+                        self?.lastKnownIP = ip
                         self?.resultLabel.stringValue = ip
                         self?.fetchCountryInfo(for: ip)
                     } else {
@@ -205,8 +311,7 @@ class CustomView: NSView {
                         self?.flagLabel.stringValue = ""
                     }
                 } catch {
-                    self?.resultLabel.stringValue = "Error: \(error.localizedDescription)"
-                    self?.flagLabel.stringValue = ""
+                    self?.handleNetworkError(error: error)
                 }
             }
         }
@@ -215,6 +320,11 @@ class CustomView: NSView {
     }
 
     func fetchCountryInfo(for ip: String) {
+        guard isNetworkAvailable else {
+            handleNetworkUnavailable()
+            return
+        }
+
         guard let url = URL(string: "https://ipapi.co/\(ip)/json/") else {
             flagLabel.stringValue = ""
             return
@@ -225,8 +335,13 @@ class CustomView: NSView {
                 self?.resultLabel.stringValue = ip
                 self?.flagLabel.stringValue = ""
 
-                guard let data = data, error == nil else {
-                    print("Error fetching country info: \(error?.localizedDescription ?? "Unknown error")")
+                if let error = error {
+                    self?.handleNetworkError(error: error)
+                    return
+                }
+
+                guard let data = data else {
+                    self?.handleNetworkError(error: NSError(domain: "CustomViewError", code: 0, userInfo: [NSLocalizedDescriptionKey: "No data received"]))
                     return
                 }
 
@@ -238,9 +353,16 @@ class CustomView: NSView {
                         self?.currentCountry = country
                         print("Current country set to: \(country)")
                         self?.compareCountries()
+                    } else {
+                        self?.handleNetworkError(error: NSError(domain: "CustomViewError", code: 0, userInfo: [NSLocalizedDescriptionKey: "Unable to parse country info"]))
                     }
                 } catch {
-                    print("Error parsing country info: \(error.localizedDescription)")
+                    self?.handleNetworkError(error: error)
+                }
+
+                // Ensure the title is correct even after async operations
+                if !(self?.isHomeCountrySet ?? false) {
+                    self?.updateStatusItemTitle(title: "Digital Dash")
                 }
             }
         }
@@ -248,14 +370,26 @@ class CustomView: NSView {
         task.resume()
     }
 
+    private func handleNetworkError(error: Error) {
+        print("Network error: \(error.localizedDescription)")
+        resultLabel.stringValue = "Error: \(error.localizedDescription)"
+        flagLabel.stringValue = ""
+        currentCountry = nil
+        compareCountries()
+        if !isRetrying {
+            startRetryTimer()
+        }
+    }
+
     func runSpeedTest() {
-        guard !isRunningSpeedTest else { return }
-        guard isNetworkReachable() else {
-            speedTestResultLabel.stringValue = "Error: No network connection"
-            downloadSpeedValue.stringValue = "Error"
-            uploadSpeedValue.stringValue = "Error"
+        guard isNetworkAvailable else {
+            speedTestResultLabel.stringValue = "Network unavailable"
+            downloadSpeedValue.stringValue = "N/A"
+            uploadSpeedValue.stringValue = "N/A"
             return
         }
+
+        guard !isRunningSpeedTest else { return }
         isRunningSpeedTest = true
         speedTestResultLabel.stringValue = "Running..."
         downloadSpeedValue.stringValue = "Running..."
@@ -378,19 +512,13 @@ class CustomView: NSView {
         }
     }
 
-    func isNetworkReachable() -> Bool {
-        guard let reachability = SCNetworkReachabilityCreateWithName(nil, "www.apple.com") else {
-            return false
-        }
-        var flags = SCNetworkReachabilityFlags()
-        SCNetworkReachabilityGetFlags(reachability, &flags)
-        return flags.contains(.reachable)
-    }
-
     func compareCountries() {
-        if let currentCountry = self.currentCountry,
-           let homeCountry = UserDefaults.standard.string(forKey: "homeCountry"),
-           homeCountry != "Not set" {
+        let homeCountry = UserDefaults.standard.string(forKey: "homeCountry")
+        isHomeCountrySet = homeCountry != nil && homeCountry != "Not set"
+        
+        print("compareCountries: homeCountry = \(homeCountry ?? "nil"), currentCountry = \(currentCountry ?? "nil"), isHomeCountrySet = \(isHomeCountrySet)")
+        
+        if isHomeCountrySet, let currentCountry = self.currentCountry, let homeCountry = homeCountry {
             let title = currentCountry == homeCountry ? ":)" : ":("
             updateStatusItemTitle(title: title)
         } else {
@@ -417,56 +545,23 @@ class CustomView: NSView {
     }
 
     func updateHomeCountry(_ country: String) {
+        print("updateHomeCountry: Setting home country to \(country)")
         homeCountryResultLabel.stringValue = country
         UserDefaults.standard.set(country, forKey: "homeCountry")
-        compareCountries()  // This will call updateStatusItemTitle with the correct title
+        isHomeCountrySet = country != "Not set"
+        compareCountries()
     }
 
     func loadHomeCountry() {
-        updateHomeCountry(UserDefaults.standard.string(forKey: "homeCountry") ?? "Not set")
+        let homeCountry = UserDefaults.standard.string(forKey: "homeCountry") ?? "Not set"
+        print("loadHomeCountry: Loading home country: \(homeCountry)")
+        updateHomeCountry(homeCountry)
     }
     
     deinit {
-        if let observer = networkObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(observer)
-        }
-        if let reachability = reachability {
-            SCNetworkReachabilityUnscheduleFromRunLoop(reachability, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
-        }
-    }
-
-    private func setupNetworkObserver() {
-        guard let reachability = SCNetworkReachabilityCreateWithName(nil, "www.apple.com") else {
-            print("Failed to create network reachability object")
-            return
-        }
-
-        self.reachability = reachability
-
-        var context = SCNetworkReachabilityContext(version: 0, info: Unmanaged.passUnretained(self).toOpaque(), retain: nil, release: nil, copyDescription: nil)
-        
-        if !SCNetworkReachabilitySetCallback(reachability, { (_, flags, info) in
-            guard let info = info else { return }
-            let customView = Unmanaged<CustomView>.fromOpaque(info).takeUnretainedValue()
-            DispatchQueue.main.async {
-                customView.networkStatusChanged()
-            }
-        }, &context) {
-            print("Failed to set network reachability callback")
-            return
-        }
-
-        if !SCNetworkReachabilityScheduleWithRunLoop(reachability, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {
-            print("Failed to schedule network reachability")
-            return
-        }
-
-        print("Network observer set up successfully")
-    }
-
-    private func networkStatusChanged() {
-        print("Network status changed")
-        fetchPublicIP()
+        networkMonitor?.cancel()
+        retryTimer?.invalidate()
+        ipCheckTimer?.invalidate()
     }
 }
 
