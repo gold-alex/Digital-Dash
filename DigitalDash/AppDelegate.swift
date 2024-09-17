@@ -123,7 +123,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func openCountrySelector() {
-        let countries = [
+        let countries = [""] + [
             "Afghanistan", "Algeria", "Angola", "Argentina", "Australia", "Austria", "Azerbaijan",
             "Bangladesh", "Belarus", "Belgium", "Benin", "Bolivia", "Brazil", "Burkina Faso", "Burundi",
             "Cambodia", "Cameroon", "Canada", "Chad", "Chile", "China", "Colombia", "Côte d'Ivoire", "Cuba", "Czech Republic (Czechia)",
@@ -166,6 +166,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let currentHomeCountry = UserDefaults.standard.string(forKey: "homeCountry"),
            let index = countries.firstIndex(of: currentHomeCountry) {
             popUpButton.selectItem(at: index)
+        } else {
+            // No selection by default
+            popUpButton.selectItem(at: 0)
         }
 
         customView.addSubview(popUpButton)
@@ -177,7 +180,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let response = alert.runModal()
 
         if response == .alertFirstButtonReturn {
-            if let selectedCountry = popUpButton.selectedItem?.title {
+            let selectedCountry = popUpButton.selectedItem?.title ?? ""
+            if selectedCountry.isEmpty {
+                // Handle 'no selection' by clearing the home country
+                self.customView.updateHomeCountry("Not Set")
+            } else {
                 print("Selected country: \(selectedCountry)")
                 self.customView.updateHomeCountry(selectedCountry)
             }

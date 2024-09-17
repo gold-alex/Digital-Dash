@@ -11,7 +11,7 @@ class CustomView: NSView {
     private let flagLabel = NSTextField(labelWithString: "")
     private let resultLabel = NSTextField(labelWithString: "Loading...")
     private let homeCountryLabel = NSTextField(labelWithString: "Home Country:")
-    private let homeCountryResultLabel = NSTextField(labelWithString: "Not set")
+    private let homeCountryResultLabel = NSTextField(labelWithString: "Not Set")
     private let speedTestLabel = NSTextField(labelWithString: "Speed Test:")
     private let progressLabel = NSTextField(labelWithString: "")
     private let progressBar = NSProgressIndicator()
@@ -123,29 +123,41 @@ class CustomView: NSView {
 
     // MARK: - Network Monitoring and Data Fetching
 
+    // Add a timer property for debouncing network status changes
+    private var networkUnavailableTimer: Timer?
+
     private func setupNetworkMonitor() {
         networkMonitor = NWPathMonitor()
         networkMonitor?.pathUpdateHandler = { [weak self] path in
             DispatchQueue.main.async {
-                let previousPath = self?.currentPath
-                self?.currentPath = path
-
-                self?.isNetworkAvailable = (path.status == .satisfied)
-                print("Network status changed: isNetworkAvailable = \(self?.isNetworkAvailable ?? false)")
+                guard let self = self else { return }
+                self.currentPath = path
 
                 if path.status == .satisfied {
-                    if previousPath == nil || path != previousPath {
-                        // Network became available or path changed (e.g., VPN enabled)
-                        self?.retryTimer?.invalidate()
-                        self?.isRetrying = false
-                        self?.retryCount = 0
-                        // Add a slight delay before refreshing IP
+                    // Invalidate the unavailable timer if network is available
+                    if let timer = self.networkUnavailableTimer {
+                        timer.invalidate()
+                        self.networkUnavailableTimer = nil
+                    }
+                    if !self.isNetworkAvailable {
+                        self.isNetworkAvailable = true
+                        self.retryTimer?.invalidate()
+                        self.isRetrying = false
+                        self.retryCount = 0
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                            self?.forceIPRefresh()
+                            self.forceIPRefresh()
                         }
                     }
                 } else {
-                    self?.handleNetworkUnavailable()
+                    // Start the unavailable timer if not already started
+                    if self.networkUnavailableTimer == nil {
+                        self.networkUnavailableTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
+                            guard let self = self else { return }
+                            self.isNetworkAvailable = false
+                            self.handleNetworkUnavailable()
+                            self.networkUnavailableTimer = nil
+                        }
+                    }
                 }
             }
         }
@@ -481,7 +493,7 @@ class CustomView: NSView {
 
     func compareCountries() {
         let homeCountry = UserDefaults.standard.string(forKey: "homeCountry")
-        isHomeCountrySet = homeCountry != nil && homeCountry != "Not set"
+        isHomeCountrySet = homeCountry != nil && homeCountry != "Not Set"
 
         if isHomeCountrySet, let currentCountry = self.currentCountry, let homeCountry = homeCountry {
             let title = currentCountry == homeCountry ? ":)" : ":("
@@ -512,12 +524,12 @@ class CustomView: NSView {
     func updateHomeCountry(_ country: String) {
         homeCountryResultLabel.stringValue = country
         UserDefaults.standard.set(country, forKey: "homeCountry")
-        isHomeCountrySet = country != "Not set"
+        isHomeCountrySet = country != "Not Set"
         compareCountries()
     }
 
     func loadHomeCountry() {
-        let homeCountry = UserDefaults.standard.string(forKey: "homeCountry") ?? "Not set"
+        let homeCountry = UserDefaults.standard.string(forKey: "homeCountry") ?? "Not Set"
         updateHomeCountry(homeCountry)
     }
 
