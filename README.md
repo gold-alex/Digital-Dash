@@ -15,7 +15,6 @@ Digital Dash is a macOS menu bar application that provides real-time information
 ## Features (Additional)
 
 - Built-in speed test for measuring download and upload speeds
-- Custom rounded dock icon for better visibility
 - Easy home country selection from a comprehensive list of countries
 - Visual indicator in the menu bar for quick location status check
 
@@ -37,16 +36,6 @@ Digital Dash is a macOS menu bar application that provides real-time information
 4. The menu bar icon will update to reflect your current location status.
 5. Use the "Run Speed Test" option to check your current download and upload speeds.
 6. The menu bar icon will show ":)" if you're in your home country, or ":(" if you're not.
-
-## Development
-
-The app is built using SwiftUI and combines modern Apple frameworks for optimal performance. Key components include:
-
-- `DigitalDashApp.swift`: The main app structure
-- `MenuBarManager.swift`: Handles the menu bar functionality
-- `NetworkMonitor.swift`: Manages network status monitoring
-- `LocationManager.swift`: Handles location services and comparisons
-
 
 ## License
 
