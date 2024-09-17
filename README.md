@@ -1,5 +1,9 @@
-# Digital Dash
-
+   ___      _      __ _     _      _                _              ___                    _      
+  |   \    (_)    / _` |   (_)    | |_    __ _     | |     ___    |   \   __ _     ___   | |_    
+  | |) |   | |    \__, |   | |    |  _|  / _` |    | |    |___|   | |) | / _` |   (_-<   | ' \   
+  |___/   _|_|_   |___/   _|_|_   _\__|  \__,_|   _|_|_   _____   |___/  \__,_|   /__/_  |_||_|  
+_|"""""|_|"""""|_|"""""|_|"""""|_|"""""|_|"""""|_|"""""|_|     |_|"""""|_|"""""|_|"""""|_|"""""| 
+"`-0-0-'"`-0-0-'"`-0-0-'"`-0-0-'"`-0-0-'"`-0-0-'"`-0-0-'"`-0-0-'"`-0-0-'"`-0-0-'"`-0-0-'"`-0-0-' 
 Digital Dash is a macOS menu bar application that provides real-time information about your network status, including your current public IP address and location. It's an essential tool for digital nomads, travelers, and anyone who wants to keep track of their network details and VPN status.
 
 https://github.com/user-attachments/assets/c719c553-419b-4e04-bdb5-1d054ac46c58
