@@ -116,7 +116,7 @@ class CustomView: NSView {
     override var intrinsicContentSize: NSSize {
         let gridSize = gridView.fittingSize
         // Add padding values used in constraints
-        let width = gridSize.width + 30  // Left and right padding: 15 + 15
+        let width = (gridSize.width + 30) * 1.2  // Increase width by 20%
         let height = gridSize.height + 20 // Top and bottom padding: 10 + 10
         return NSSize(width: width, height: height)
     }

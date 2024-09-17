@@ -13,7 +13,7 @@ struct CustomViewRepresentable: NSViewRepresentable {
 struct ContentView: View {
     var body: some View {
         CustomViewRepresentable()
-            .frame(minWidth: 200, minHeight: 100) // Adjust the frame as needed
+            .frame(minWidth: 240, minHeight: 100) // Increased minWidth by 20%
     }
 }
 
