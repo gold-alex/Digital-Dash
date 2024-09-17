@@ -139,7 +139,10 @@ class CustomView: NSView {
                         self?.retryTimer?.invalidate()
                         self?.isRetrying = false
                         self?.retryCount = 0
-                        self?.forceIPRefresh()
+                        // Add a slight delay before refreshing IP
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                            self?.forceIPRefresh()
+                        }
                     }
                 } else {
                     self?.handleNetworkUnavailable()
@@ -188,6 +191,7 @@ class CustomView: NSView {
     }
 
     private func handleNetworkUnavailable() {
+        currentDataTask?.cancel() // Cancel any ongoing data tasks
         resultLabel.stringValue = "Network unavailable"
         flagLabel.stringValue = ""
         currentCountry = nil
