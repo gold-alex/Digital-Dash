@@ -1,82 +1,127 @@
-import Cocoa
+// AppDelegate.swift
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+import Cocoa
+import SwiftUI
+
+class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     static var shared: AppDelegate?
-    var statusItem: NSStatusItem?
-    var customView: CustomView?
+    var statusItem: NSStatusItem!
+    var customView: CustomView!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppDelegate.shared = self
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        
-        let menu = NSMenu()
 
+        // Initialize the status item with variable length
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+
+        // Create the menu and assign it to the status item
+        let menu = NSMenu()
+        menu.delegate = self
+        statusItem.menu = menu
+
+        // Set the initial title
+        updateStatusItemTitle(title: "Digital Dash")
+
+        // Create the custom view item
         let customViewItem = NSMenuItem()
-        customView = CustomView(frame: NSRect(x: 0, y: 0, width: 380, height: 150))
-        customViewItem.view = customView
+        customView = CustomView()
+        customView.translatesAutoresizingMaskIntoConstraints = false
+
+        // Create a container view for customView
+        let customViewContainer = NSView()
+        customViewContainer.translatesAutoresizingMaskIntoConstraints = false
+        customViewContainer.addSubview(customView)
+
+        // Add constraints to pin customView to its container
+        NSLayoutConstraint.activate([
+            customView.topAnchor.constraint(equalTo: customViewContainer.topAnchor),
+            customView.leadingAnchor.constraint(equalTo: customViewContainer.leadingAnchor),
+            customView.trailingAnchor.constraint(equalTo: customViewContainer.trailingAnchor),
+            customView.bottomAnchor.constraint(equalTo: customViewContainer.bottomAnchor)
+        ])
+
+        // Set the container view's size to match customView's intrinsic content size
+        let customViewSize = customView.intrinsicContentSize
+        customViewContainer.setFrameSize(customViewSize)
+
+        customViewItem.view = customViewContainer
         menu.addItem(customViewItem)
 
-        // Create a custom view for the speed test button
-        let speedTestView = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 30))
-        let speedTestButton = NSButton(frame: NSRect(x: 0, y: 0, width: 380, height: 30))
-        speedTestButton.title = "Run Speed Test"
+        // Create the speed test button item
+        let speedTestItem = NSMenuItem()
+        let speedTestButton = NSButton(title: "Run Speed Test", target: self, action: #selector(runSpeedTest))
         speedTestButton.bezelStyle = .rounded
-        speedTestButton.target = self
-        speedTestButton.action = #selector(runSpeedTest)
+        speedTestButton.translatesAutoresizingMaskIntoConstraints = false
+
+        let speedTestView = NSView()
+        speedTestView.translatesAutoresizingMaskIntoConstraints = false
         speedTestView.addSubview(speedTestButton)
 
-        // Create a custom menu item with the speed test button
-        let speedTestItem = NSMenuItem()
-        speedTestItem.view = speedTestView
+        // Add constraints to center the button in its container
+        NSLayoutConstraint.activate([
+            speedTestButton.centerXAnchor.constraint(equalTo: speedTestView.centerXAnchor),
+            speedTestButton.centerYAnchor.constraint(equalTo: speedTestView.centerYAnchor),
+            speedTestView.widthAnchor.constraint(equalTo: speedTestButton.widthAnchor),
+            speedTestView.heightAnchor.constraint(equalTo: speedTestButton.heightAnchor)
+        ])
 
-        // Add the custom speed test item to the menu
+        speedTestItem.view = speedTestView
         menu.addItem(speedTestItem)
 
         // Add a separator item
         menu.addItem(NSMenuItem.separator())
 
         // Add the "Set Home Country" menu item
-        menu.addItem(NSMenuItem(title: "Set Home Country", action: #selector(openCountrySelector), keyEquivalent: "C"))
-      
-        // Add a separator item
+        let setHomeCountryItem = NSMenuItem(title: "Set Home Country", action: #selector(openCountrySelector), keyEquivalent: "")
+        setHomeCountryItem.target = self
+        menu.addItem(setHomeCountryItem)
+
+        // Add another separator item
         menu.addItem(NSMenuItem.separator())
 
-        // Add the Quit button
-        menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApplication), keyEquivalent: "q"))
-
-        statusItem?.menu = menu
-
-        // Set the initial title
-        updateStatusItemTitle(title: "Digital Dash")
+        // Add the Quit menu item
+        let quitItem = NSMenuItem(title: "Quit", action: #selector(quitApplication), keyEquivalent: "q")
+        quitItem.target = self
+        menu.addItem(quitItem)
 
         // Load the home country
-        customView?.loadHomeCountry()
+        customView.loadHomeCountry()
 
-        // Explicitly call fetchPublicIP here
+        // Explicitly call fetchPublicIP after a short delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.customView?.fetchPublicIP()
+            self?.customView.fetchPublicIP()
         }
     }
+
+    // MARK: - NSMenuDelegate
+
+    func menuWillOpen(_ menu: NSMenu) {
+        customView.forceIPRefresh()
+    }
+
+    // MARK: - Status Item Title Update
 
     func updateStatusItemTitle(title: String) {
         DispatchQueue.main.async { [weak self] in
-            self?.statusItem?.button?.title = title
+            self?.statusItem.button?.title = title
             print("Status item title updated to: \(title)")
         }
     }
+
+    // MARK: - Actions
 
     @objc func quitApplication() {
         NSApplication.shared.terminate(nil)
     }
 
     @objc func runSpeedTest() {
-        customView?.runSpeedTest()
-        // Keep the menu open
+        customView.runSpeedTest()
+        // Keep the menu open after clicking the button
         if let statusItem = statusItem, let button = statusItem.button {
             statusItem.menu?.popUp(positioning: nil, at: NSPoint(x: 0, y: button.frame.height), in: button)
         }
     }
-    
+
     @objc func openCountrySelector() {
         let countries = [
             "Afghanistan", "Algeria", "Angola", "Argentina", "Australia", "Austria", "Azerbaijan",
@@ -101,51 +146,41 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             "Yemen",
             "Zambia", "Zimbabwe"
         ].sorted()
-        
+
         let alert = NSAlert()
         alert.messageText = "Select Home Country"
         alert.informativeText = "Choose your home country from the list below:"
-        
+
         let customView = NSView(frame: NSRect(x: 0, y: 0, width: 230, height: 30))
-        
+
         let iconView = NSImageView(frame: NSRect(x: 0, y: 2, width: 25, height: 25))
         if let locationImage = NSImage(systemSymbolName: "location.fill", accessibilityDescription: "Location icon") {
             iconView.image = locationImage
             iconView.contentTintColor = .labelColor
         }
         customView.addSubview(iconView)
-        
+
         let popUpButton = NSPopUpButton(frame: NSRect(x: 30, y: 0, width: 200, height: 25))
         popUpButton.addItems(withTitles: countries)
-        
+
         if let currentHomeCountry = UserDefaults.standard.string(forKey: "homeCountry"),
            let index = countries.firstIndex(of: currentHomeCountry) {
             popUpButton.selectItem(at: index)
         }
-        
+
         customView.addSubview(popUpButton)
-        
+
         alert.accessoryView = customView
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Cancel")
-        
+
         let response = alert.runModal()
-        
+
         if response == .alertFirstButtonReturn {
             if let selectedCountry = popUpButton.selectedItem?.title {
                 print("Selected country: \(selectedCountry)")
-                self.customView?.updateHomeCountry(selectedCountry)
+                self.customView.updateHomeCountry(selectedCountry)
             }
         }
     }
 }
-
-extension AppDelegate: NSMenuDelegate {
-    func menuWillOpen(_ menu: NSMenu) {
-        customView?.forceIPRefresh()
-    }
-}
-
-
-
-

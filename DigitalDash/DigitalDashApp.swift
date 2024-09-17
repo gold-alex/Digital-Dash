@@ -6,8 +6,7 @@ struct DigitalDashApp: App {
 
     var body: some Scene {
         Settings {
-            EmptyView() // No main window, so we use an empty view
+            EmptyView()
         }
     }
 }
-

@@ -1,12 +1,9 @@
-// CustomView.swift
-
 import Cocoa
 import Foundation
 import Network
 
 class CustomView: NSView {
-    // MARK: - UI Components
-
+    // UI Components
     private let label = NSTextField(labelWithString: "Public IP:")
     private let flagLabel = NSTextField(labelWithString: "")
     private let resultLabel = NSTextField(labelWithString: "Loading...")
@@ -17,30 +14,32 @@ class CustomView: NSView {
     private let progressBar = NSProgressIndicator()
     private var isRunningSpeedTest = false
     var currentCountry: String?
-
-    // MARK: - Network Monitoring Properties
-
+    
     private var networkMonitor: NWPathMonitor?
     private var isNetworkAvailable = false
     private var lastKnownIP: String?
     private var retryTimer: Timer?
+    private let retryInterval: TimeInterval = 5.0
     private var isRetrying = false
     private var ipCheckTimer: Timer?
+    private let ipCheckInterval: TimeInterval = 10.0 // Check IP every 10 seconds
     private var isHomeCountrySet: Bool = false
 
     private var retryCount = 0
     private let maxRetryCount = 5
     private let initialRetryDelay: TimeInterval = 1.0
 
+    // Add this property to track the current network path
     private var currentPath: NWPath?
+
+    // Add this property to keep track of the current data task
     private var currentDataTask: URLSessionDataTask?
 
-    // MARK: - UI Layout Properties
-
+    // Make gridView a property:
     private var gridView: NSGridView!
-    private var isSpeedTestRowAdded = false
 
-    // MARK: - Initialization
+    // Add a property to track if the "Speed Test:" row is added:
+    private var isSpeedTestRowAdded = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -49,12 +48,8 @@ class CustomView: NSView {
     }
 
     required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setupUI()
-        setupNetworkMonitor()
+        fatalError("init(coder:) has not been implemented")
     }
-
-    // MARK: - UI Setup
 
     private func setupUI() {
         // Set fonts
@@ -63,37 +58,37 @@ class CustomView: NSView {
         homeCountryLabel.font = boldFont
         speedTestLabel.font = boldFont
 
-        // Configure labels
+        // Configure labels (including progressLabel)
         [label, flagLabel, resultLabel, homeCountryLabel, homeCountryResultLabel, speedTestLabel, progressLabel].forEach {
             $0.isEditable = false
             $0.isBordered = false
             $0.drawsBackground = false
         }
-
+        
         // Align labels to the left, values to the right
-        [label, homeCountryLabel, speedTestLabel].forEach { $0.alignment = .left }
-        [resultLabel, homeCountryResultLabel, progressLabel].forEach { $0.alignment = .right }
+        label.alignment = .left
+        homeCountryLabel.alignment = .left
+        speedTestLabel.alignment = .left
 
-        // Create a horizontal stack for the flag and IP address
-        let ipValueStack = NSStackView(views: [flagLabel, resultLabel])
-        ipValueStack.orientation = .horizontal
-        ipValueStack.spacing = 5
-        ipValueStack.alignment = .centerY
+        resultLabel.alignment = .right
+        homeCountryResultLabel.alignment = .right
+        progressLabel.alignment = .right
 
-        // Create Grid View
+        // Create Grid View without the "Speed Test:" row
         gridView = NSGridView(views: [
-            [label, ipValueStack],
-            [homeCountryLabel, homeCountryResultLabel]
+            [label, flagLabel, resultLabel],
+            [homeCountryLabel, NSView(), homeCountryResultLabel]
         ])
         gridView.translatesAutoresizingMaskIntoConstraints = false
-
+        
         // Adjust column alignments
         gridView.column(at: 0).xPlacement = .leading   // Left-align labels
-        gridView.column(at: 1).xPlacement = .trailing  // Right-align values
+        gridView.column(at: 1).xPlacement = .center    // Center flag/progress bar
+        gridView.column(at: 2).xPlacement = .trailing  // Right-align values
 
-        // Adjust row spacing to ensure consistent vertical spacing
+        // Adjust row spacing to remove unnecessary space
         gridView.rowSpacing = 5
-        gridView.columnSpacing = 10
+        gridView.columnSpacing = 5
 
         addSubview(gridView)
 
@@ -102,26 +97,8 @@ class CustomView: NSView {
             gridView.topAnchor.constraint(equalTo: self.topAnchor, constant: 10),
             gridView.leadingAnchor.constraint(equalTo: self.leadingAnchor, constant: 15),
             gridView.trailingAnchor.constraint(equalTo: self.trailingAnchor, constant: -15),
-            gridView.bottomAnchor.constraint(equalTo: self.bottomAnchor, constant: -10)
         ])
-
-        // Set content hugging and compression resistance priorities
-        gridView.setContentHuggingPriority(.required, for: .vertical)
-        gridView.setContentCompressionResistancePriority(.required, for: .vertical)
-
-        // Set the view's translatesAutoresizingMaskIntoConstraints to false
-        self.translatesAutoresizingMaskIntoConstraints = false
     }
-
-    override var intrinsicContentSize: NSSize {
-        let gridSize = gridView.fittingSize
-        // Add padding values used in constraints
-        let width = gridSize.width + 30  // Left and right padding: 15 + 15
-        let height = gridSize.height + 20 // Top and bottom padding: 10 + 10
-        return NSSize(width: width, height: height)
-    }
-
-    // MARK: - Network Monitoring and Data Fetching
 
     private func setupNetworkMonitor() {
         networkMonitor = NWPathMonitor()
@@ -154,7 +131,7 @@ class CustomView: NSView {
 
     private func startIPCheckTimer() {
         ipCheckTimer?.invalidate()
-        ipCheckTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
+        ipCheckTimer = Timer.scheduledTimer(withTimeInterval: ipCheckInterval, repeats: true) { [weak self] _ in
             self?.checkForIPChange()
         }
     }
@@ -171,7 +148,7 @@ class CustomView: NSView {
             return
         }
 
-        let task = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+        let task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                   let ip = json["ip"] as? String else {
@@ -235,14 +212,19 @@ class CustomView: NSView {
             return
         }
 
+        // Create a new URLSession with default configuration
         let configuration = URLSessionConfiguration.default
         configuration.waitsForConnectivity = true
         let session = URLSession(configuration: configuration)
 
-        currentDataTask = session.dataTask(with: url) { [weak self] data, _, error in
+        currentDataTask = session.dataTask(with: url) { [weak self] data, response, error in
             DispatchQueue.main.async {
-                if let error = error as NSError?, error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled {
-                    // Task was cancelled, do not update resultLabel
+                if let error = error as NSError? {
+                    if error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled {
+                        // Task was cancelled, do not update resultLabel
+                        return
+                    }
+                    self?.handleNetworkError(error: error)
                     return
                 }
 
@@ -282,11 +264,12 @@ class CustomView: NSView {
             return
         }
 
+        // Create a new URLSession with default configuration
         let configuration = URLSessionConfiguration.default
         configuration.waitsForConnectivity = true
         let session = URLSession(configuration: configuration)
 
-        let task = session.dataTask(with: url) { [weak self] data, _, error in
+        let task = session.dataTask(with: url) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 self?.resultLabel.stringValue = ip
                 self?.flagLabel.stringValue = ""
@@ -307,12 +290,18 @@ class CustomView: NSView {
                        let country = json["country_name"] as? String {
                         self?.flagLabel.stringValue = self?.countryFlag(from: countryCode) ?? ""
                         self?.currentCountry = country
+                        print("Current country set to: \(country)")
                         self?.compareCountries()
                     } else {
                         self?.handleNetworkError(error: NSError(domain: "CustomViewError", code: 0, userInfo: [NSLocalizedDescriptionKey: "Unable to parse country info"]))
                     }
                 } catch {
                     self?.handleNetworkError(error: error)
+                }
+
+                // Ensure the title is correct even after async operations
+                if !(self?.isHomeCountrySet ?? false) {
+                    self?.updateStatusItemTitle(title: "Digital Dash")
                 }
             }
         }
@@ -331,8 +320,6 @@ class CustomView: NSView {
         }
     }
 
-    // MARK: - Speed Test Functionality
-
     func runSpeedTest() {
         guard isNetworkAvailable else {
             progressLabel.stringValue = "Network unavailable"
@@ -347,27 +334,12 @@ class CustomView: NSView {
 
         // Add the "Speed Test:" row if not already added
         if !isSpeedTestRowAdded {
-            // Configure progressBar
-            progressBar.isIndeterminate = false
-            progressBar.minValue = 0
-            progressBar.maxValue = 100
-            progressBar.doubleValue = 0
-            progressBar.controlSize = .small
-            progressBar.isDisplayedWhenStopped = false
-            progressBar.style = .bar
-
-            let progressStack = NSStackView(views: [progressBar, progressLabel])
-            progressStack.orientation = .horizontal
-            progressStack.spacing = 5
-            progressStack.alignment = .centerY
-
-            let speedTestRow = [speedTestLabel, progressStack]
+            let speedTestRow = [speedTestLabel, progressBar, progressLabel]
             gridView.addRow(with: speedTestRow)
             isSpeedTestRowAdded = true
 
-            // Adjust grid view constraints after adding a new row
-            gridView.layoutSubtreeIfNeeded()
-            invalidateIntrinsicContentSize() // Important to recalculate size
+            // Optionally, adjust grid view constraints after adding a new row
+            gridView.needsLayout = true
         }
 
         // Increase the file sizes to improve accuracy
@@ -419,7 +391,8 @@ class CustomView: NSView {
             configuration.timeoutIntervalForResource = 15
             let session = URLSession(configuration: configuration)
 
-            let dataSize = 5 * 1024 * 1024 // 5 MB
+            // Reduce upload data size to 5 MB
+            let dataSize = 5 * 1024 * 1024
             let data = Data(count: dataSize)
 
             var request = URLRequest(url: url)
@@ -449,7 +422,7 @@ class CustomView: NSView {
             task.resume()
         }
 
-        // Update the progress label during the test
+        // Update the progress bar and label during the test
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.progressLabel.stringValue = "Testing download..."
         }
@@ -457,28 +430,28 @@ class CustomView: NSView {
         runDownloadTest { [weak self] downloadSpeed in
             guard let self = self else { return }
             self.progressLabel.stringValue = "Testing upload..."
-
+            
             runUploadTest { [weak self] uploadSpeed in
                 guard let self = self else { return }
-
+                
                 if downloadSpeed > 0 || uploadSpeed > 0 {
                     self.progressLabel.stringValue = String(format: "↓%.2f Mbps ↑%.2f Mbps", downloadSpeed, uploadSpeed)
                 } else {
                     self.progressLabel.stringValue = "Test failed"
                 }
-
+                
                 self.isRunningSpeedTest = false
                 self.progressBar.isHidden = true
             }
         }
     }
 
-    // MARK: - Country Comparison and Utilities
-
     func compareCountries() {
         let homeCountry = UserDefaults.standard.string(forKey: "homeCountry")
         isHomeCountrySet = homeCountry != nil && homeCountry != "Not set"
-
+        
+        print("compareCountries: homeCountry = \(homeCountry ?? "nil"), currentCountry = \(currentCountry ?? "nil"), isHomeCountrySet = \(isHomeCountrySet)")
+        
         if isHomeCountrySet, let currentCountry = self.currentCountry, let homeCountry = homeCountry {
             let title = currentCountry == homeCountry ? ":)" : ":("
             updateStatusItemTitle(title: title)
@@ -488,7 +461,7 @@ class CustomView: NSView {
     }
 
     func updateStatusItemTitle(title: String) {
-        // Update the status item title if applicable
+        print("CustomView: Updating status item title to \(title)")
         if let appDelegate = AppDelegate.shared {
             appDelegate.updateStatusItemTitle(title: title)
         } else {
@@ -497,7 +470,7 @@ class CustomView: NSView {
     }
 
     func countryFlag(from countryCode: String) -> String {
-        let base: UInt32 = 127397
+        let base : UInt32 = 127397
         var s = ""
         for v in countryCode.uppercased().unicodeScalars {
             s.unicodeScalars.append(UnicodeScalar(base + v.value)!)
@@ -506,6 +479,7 @@ class CustomView: NSView {
     }
 
     func updateHomeCountry(_ country: String) {
+        print("updateHomeCountry: Setting home country to \(country)")
         homeCountryResultLabel.stringValue = country
         UserDefaults.standard.set(country, forKey: "homeCountry")
         isHomeCountrySet = country != "Not set"
@@ -514,14 +488,16 @@ class CustomView: NSView {
 
     func loadHomeCountry() {
         let homeCountry = UserDefaults.standard.string(forKey: "homeCountry") ?? "Not set"
+        print("loadHomeCountry: Loading home country: \(homeCountry)")
         updateHomeCountry(homeCountry)
     }
-
-    // MARK: - Deinitialization
-
+    
     deinit {
         networkMonitor?.cancel()
         retryTimer?.invalidate()
         ipCheckTimer?.invalidate()
     }
 }
+
+
+
